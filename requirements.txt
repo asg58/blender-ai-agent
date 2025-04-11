@@ -1,8 +1,24 @@
-requests==2.31.0
-beautifulsoup4==4.12.2
-sentence-transformers==2.2.2
-chromadb==0.4.18
-fastapi==0.104.1
-uvicorn==0.23.2
-websockets==11.0.3
-python-dotenv==1.0.0 
+# FastAPI Backend
+fastapi
+uvicorn[standard]
+pydantic
+requests
+python-multipart
+
+# AI & Embeddings
+sentence-transformers
+chromadb
+resemblyzer
+openai-whisper
+
+# Parsing
+beautifulsoup4
+lxml
+
+# Audio
+ffmpeg-python
+
+# Frontend (extern, via Next.js project)
+
+# Optional
+python-dotenv

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+env/
+venv/
+ENV/
+build/
+dist/
+
+# VSCode
+.vscode/
+
+# Node.js
+node_modules/
+.next/
+out/
+
+# Data & logs
+*.log
+uploads/
+render.png
+render.glb
+blender_api_scraped.json
+api_index/
+
+# OS
+.DS_Store
+Thumbs.db
