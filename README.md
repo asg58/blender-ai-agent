@@ -1,7 +1,7 @@
 # 🧠 Blender AI Expert Agent
 
 Een realtime AI-assistent voor Blender die:
-- Spraakcommando’s omzet naar `bpy` Python-code
+- Spraakcommando's omzet naar `bpy` Python-code
 - Vectorbestanden zoals SVG, DXF en EPS verwerkt tot 3D-modellen
 - Realtime met Blender communiceert via WebSocket
 - Volledig begrijpt wat er in de Blender-scene gebeurt
@@ -50,7 +50,7 @@ Een realtime AI-assistent voor Blender die:
 
 ✅ MVP functioneel  
 🧠 AI redeneert met Blender-kennis  
-📡 Blender voert commando’s realtime uit  
+📡 Blender voert commando's realtime uit  
 🔁 Uitbreidbaar naar animatie, rendering, nodes en physics
 
 ---
@@ -69,3 +69,4 @@ Een realtime AI-assistent voor Blender die:
 ---
 
 > Dit project wordt stap voor stap opgebouwd door AI en gebruiker samen.
+> Laatste update: 2025-04-11
