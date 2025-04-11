@@ -1,0 +1,1 @@
+# Blender AI Agent Knowledge Kernel 
