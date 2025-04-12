@@ -50,7 +50,8 @@ class BlenderFileImporter:
             logger.info(f"File saved to {temp_file_path}, size: {len(file_content)} bytes")
             
             # Generate import code based on file type
-            file_extension = os.path.splitext(file.filename)[1].lower()
+            filename = file.filename or ""  # Gebruik een lege string als filename None is
+            file_extension = os.path.splitext(filename)[1].lower()
             
             if options is None:
                 options = {}

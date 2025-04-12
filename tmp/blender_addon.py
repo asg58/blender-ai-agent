@@ -13,7 +13,6 @@ bl_info = {
 import bpy
 import asyncio
 import json
-import websockets
 import inspect
 import os
 import threading
@@ -32,6 +31,27 @@ DEFAULT_WS_PORT = 9876
 
 # Reference to the websocket server instance
 _server_instance = None
+
+# Import websockets with compatibility wrappers
+import websockets
+
+# Wrapper voor alle websockets functies
+# Deze code werkt in alle versies van websockets
+async def _safe_serve(handler, host, port):
+    """Veilige wrapper voor websockets.serve die werkt met verschillende versies"""
+    try:
+        # Probeer eerst moderne versie
+        if hasattr(websockets, 'server') and hasattr(websockets.server, 'serve'):
+            return await websockets.server.serve(handler, host, port)
+        # Probeer directe serve functie
+        elif hasattr(websockets, 'serve'):
+            return await websockets.serve(handler, host, port)
+        # Fallback voor onbekende versies
+        else:
+            raise ImportError("Geen compatibele websockets.serve functie gevonden")
+    except Exception as e:
+        logger.error(f"Error in _safe_serve: {str(e)}")
+        raise
 
 # Blender operator for starting the server
 class WEBSOCKET_OT_start_server(bpy.types.Operator):
@@ -122,58 +142,82 @@ class BlenderWebSocketServer:
         logger.info(f"Initialized BlenderWebSocketServer on {self.host}:{self.port}")
 
     async def handle_client(self, websocket):
-        """Handle WebSocket client connection"""
-        client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "unknown"
-        logger.info(f"New client connection from {client_ip}")
+        """
+        Handle WebSocket client connection
+        
+        Args:
+            websocket: WebSocket connection
+        """
+        # Add the client to the list of connected clients
         self.connected_clients.add(websocket)
+        client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "unknown"
+        logger.info(f"Client connected: {client_ip}")
         
         try:
+            # Process messages from the client
             async for message in websocket:
                 try:
+                    # Parse the message
                     data = json.loads(message)
-                    command = data.get("command")
-                    params = data.get("params", {})
                     
-                    logger.info(f"Received command: {command} from {client_ip}")
-                    
-                    # Log command to history
+                    # Log command for history
                     self.command_history.append({
-                        "command": command,
-                        "params": params,
-                        "client": client_ip,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": datetime.now().isoformat(),
+                        "command": data.get("action", "unknown"),
+                        "data": data
                     })
                     
-                    if command == "introspect_scene":
-                        response = self.introspect_scene()
-                    elif command == "describe_function":
-                        function_path = params.get("function_path")
-                        response = self.describe_function(function_path)
-                    elif command == "execute_code":
-                        code = params.get("code")
-                        logger.debug(f"Executing code: {code[:100]}...")
-                        response = self.execute_code(code)
-                    else:
-                        logger.warning(f"Unknown command: {command}")
-                        response = {"error": f"Unknown command: {command}"}
+                    # Process the command
+                    action = data.get("action")
+                    request_data = data.get("data", {})
                     
-                    await websocket.send(json.dumps(response))
+                    if action == "ping":
+                        # Simple ping-pong
+                        await websocket.send(json.dumps({"action": "pong"}))
+                    
+                    elif action == "execute_code":
+                        # Execute Python code
+                        code = request_data.get("code", "")
+                        result = self.execute_code(code)
+                        await websocket.send(json.dumps(result))
+                    
+                    elif action == "introspect_scene":
+                        # Get scene information
+                        result = self.introspect_scene()
+                        await websocket.send(json.dumps(result))
+                    
+                    elif action == "describe_function":
+                        # Get function documentation
+                        function_path = request_data.get("function_path", "")
+                        result = self.describe_function(function_path)
+                        await websocket.send(json.dumps(result))
+                    
+                    else:
+                        # Unknown command
+                        await websocket.send(json.dumps({"error": f"Unknown action: {action}"}))
+                
                 except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON received from {client_ip}")
+                    logger.error(f"Invalid JSON received from {client_ip}")
                     await websocket.send(json.dumps({"error": "Invalid JSON"}))
                 except Exception as e:
                     logger.error(f"Error handling message: {str(e)}")
                     await websocket.send(json.dumps({"error": str(e)}))
-        except websockets.exceptions.ConnectionClosed:
-            logger.info(f"Client {client_ip} disconnected")
+        except Exception as e:
+            # Algemene exception handler voor alle verbindingsproblemen
+            logger.info(f"Client {client_ip} disconnected: {str(e)}")
         finally:
-            self.connected_clients.remove(websocket)
+            if websocket in self.connected_clients:
+                self.connected_clients.remove(websocket)
     
     async def start_server(self):
         """Start the WebSocket server"""
-        self.server = await websockets.serve(self.handle_client, self.host, self.port)
-        logger.info(f"WebSocket server started at ws://{self.host}:{self.port}")
-        await self.server.wait_closed()
+        try:
+            self.server = await _safe_serve(self.handle_client, self.host, self.port)
+            logger.info(f"WebSocket server started at ws://{self.host}:{self.port}")
+            await self.server.wait_closed()
+        except Exception as e:
+            logger.error(f"Error starting WebSocket server: {str(e)}")
+            raise
     
     async def stop_server(self):
         """Stop the WebSocket server"""

@@ -33,3 +33,6 @@ api_index/
 # OS
 .DS_Store
 Thumbs.db
+
+# History files
+.history/

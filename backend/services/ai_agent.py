@@ -32,86 +32,52 @@ class BlenderAIAgent:
         self.ollama_api_url = ollama_api_url
         self.model = OLLAMA_MODEL  # Use configured model
         self.history: List[Dict[str, Any]] = []  # Store conversation history
+        self.logger = logging.getLogger(__name__)
     
     def set_model(self, model_name: str):
         """Change the LLM model"""
         self.model = model_name
     
-    def generate_code(self, user_prompt: str, scene_data: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Generate Blender Python code based on user prompt and context
-        
-        Args:
-            user_prompt (str): The user's request
-            scene_data (dict): Current Blender scene data
-            
-        Returns:
-            str: Generated Python code for Blender
-        """
-        # Try to get relevant API documentation if available
-        knowledge_block = ""
+    def generate_code(self, prompt: str, scene_data: Optional[Dict[str, Any]] = None) -> str:
+        """Generate Blender Python code based on user prompt and optional scene data"""
         try:
-            # Get relevant API documentation
-            api_docs = search_blender_api(user_prompt, n=2)
+            # Search for relevant API documentation
+            api_results = search_blender_api(prompt, n=2)
             
             # Format API docs as context
-            for i, doc in enumerate(api_docs):
+            knowledge_block = ""
+            for i, doc in enumerate(api_results):
                 knowledge_block += f"--- Document {i+1} ---\n"
-                knowledge_block += f"Title: {doc.get('title', 'No title')}\n"
-                knowledge_block += f"URL: {doc.get('url', 'No URL')}\n"
-                knowledge_block += f"Content: {doc.get('content', 'No content')}\n\n"
-        except Exception as e:
-            # If API docs not available, use some basic examples
-            logger.warning(f"Failed to retrieve API documentation: {e}")
-            # Add error info to history for diagnostic purposes
-            self.history.append({
-                "type": "error",
-                "message": f"API documentation retrieval failed: {str(e)}",
-                "timestamp": "N/A"
-            })
+                knowledge_block += f"Name: {doc.get('name', 'No name')}\n"
+                knowledge_block += f"Description: {doc.get('description', 'No description')}\n"
+                knowledge_block += f"Parameters: {doc.get('parameters', 'No parameters')}\n\n"
             
-            knowledge_block = """--- Basic Blender Examples ---
-Example 1: Creating a cube
-import bpy
-bpy.ops.mesh.primitive_cube_add(size=2, location=(0, 0, 0))
-cube = bpy.context.active_object
-cube.name = "MyCube"
-
-Example 2: Creating a material
-import bpy
-material = bpy.data.materials.new(name="MyMaterial")
-material.use_nodes = True
-material.diffuse_color = (1, 0, 0, 1)  # Red color
-
-Example 3: Applying a material to an object
-import bpy
-obj = bpy.context.active_object
-if obj.data.materials:
-    obj.data.materials[0] = material
-else:
-    obj.data.materials.append(material)
-"""
-        
-        # Add scene data if available
-        scene_context = ""
-        if scene_data:
-            scene_context = f"[SCENE DATA]:\n{json.dumps(scene_data, indent=2)}\n\n"
-        
-        # Build the full prompt
-        prompt = f"""[KNOWLEDGE]:
+            # Add scene data if available
+            scene_context = ""
+            if scene_data:
+                scene_context = f"[SCENE DATA]:\n{json.dumps(scene_data, indent=2)}\n\n"
+            
+            # Build the full prompt
+            full_prompt = f"""[KNOWLEDGE]:
 {knowledge_block}
 
 {scene_context}[OPDRACHT]:
-{user_prompt}
+{prompt}
 
 [UITVOERBARE CODE]:
 """
-        
-        # Send to Ollama API
-        response = self._call_ollama(prompt)
-        
-        # Extract code from response
-        return self._extract_code(response)
+            
+            # Roep Ollama API aan met de volledige prompt
+            generated_code = self._call_ollama(full_prompt)
+            
+            # Extraheer de code uit het antwoord
+            cleaned_code = self._extract_code(generated_code)
+            
+            return cleaned_code
+            
+        except Exception as e:
+            self.logger.error(f"Error generating code: {str(e)}")
+            raise
     
     def _call_ollama(self, prompt: str) -> str:
         """Call the Ollama API and get the response"""

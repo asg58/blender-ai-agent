@@ -1,27 +1,31 @@
-import os
+import asyncio
 import json
+import os
+import logging
+import websockets.client as ws_client
+from typing import Dict, Any, Set, Optional, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import asyncio
-import websockets
-from typing import Optional, Dict, Any, List
-import logging
 import base64
 from contextlib import asynccontextmanager
 import tempfile
+from os.path import splitext
 
 # Import our modules
 from services.ai_agent import BlenderAIAgent
 from services.file_importer import BlenderFileImporter
 from knowledge_kernel.search import search_blender_api
 from config import API_HOST, API_PORT, CORS_ORIGINS, BLENDER_WS_URL
-from utils.websocket_utils import connect_to_blender, send_to_blender, broadcast_to_clients
+from utils.websocket_utils import connect_to_blender, send_to_blender
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("backend")
 
 # Use os to check for environment-specific configurations
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
@@ -42,7 +46,7 @@ async def lifespan(app: FastAPI):
     try:
         # This is a direct use of the websockets library for diagnostic purposes
         ws_uri = f"ws://{BLENDER_WS_URL.split('://')[-1]}"
-        async with websockets.connect(ws_uri, ping_timeout=1):
+        async with ws_client.connect(ws_uri, ping_timeout=1):
             logger.info(f"Successfully verified direct WebSocket connection to {ws_uri}")
     except Exception as e:
         logger.warning(f"Direct websocket connection test failed: {str(e)}")
@@ -194,7 +198,8 @@ async def upload_file(
     """Upload and import a file into Blender"""
     try:
         # Get file format from extension
-        file_format = os.path.splitext(file.filename)[1].lower()
+        filename = file.filename or ""
+        file_format = get_file_extension(filename)
         
         # Define supported formats
         supported_formats = ['.svg', '.dxf', '.SVG', '.DXF']
@@ -342,7 +347,37 @@ async def get_blender_scene_data() -> Optional[Dict[str, Any]]:
 
 async def broadcast_to_websocket_clients(message: Dict[str, Any]):
     """Broadcast a message to all connected WebSocket clients"""
-    await broadcast_to_clients(websocket_clients, message)
+    if websocket_clients:
+        for client in websocket_clients:
+            try:
+                await client.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting to client: {str(e)}")
+                websocket_clients.remove(client)
+
+def broadcast_to_clients(message: Dict[str, Any], clients: Set[WebSocket]) -> None:
+    """
+    Broadcast a message to all connected clients
+    
+    Args:
+        message (Dict[str, Any]): Message to broadcast
+        clients (Set[WebSocket]): Set of connected clients
+    """
+    for client in clients:
+        asyncio.create_task(client.send_json(message))
+
+def get_file_extension(filename: str) -> str:
+    """
+    Get the file extension from a filename
+    
+    Args:
+        filename (str): The filename to get the extension from
+        
+    Returns:
+        str: The file extension (including the dot)
+    """
+    _, ext = splitext(filename)
+    return ext.lower() if ext else ""
 
 if __name__ == "__main__":
     import uvicorn

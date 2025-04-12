@@ -1,65 +1,65 @@
-import chromadb
-from chromadb.utils import embedding_functions
+import json
 import os
+from typing import List, Dict, Any
 
-def search_blender_api(query: str, n=3):
+def search_blender_api(query: str, n: int = 10) -> List[Dict[str, Any]]:
     """
-    Search for relevant Blender API documentation using semantic search
+    Simple search function that searches through a JSON file containing Blender API documentation.
+    Returns a list of matching results.
     
     Args:
         query (str): The search query
-        n (int): Number of results to return
+        n (int): Maximum number of results to return (default: 10)
         
     Returns:
-        list: Top n documents with content and url
+        List[Dict[str, Any]]: List of matching API documentation entries
     """
-    # Check if index exists
-    if not os.path.exists("api_index"):
-        raise FileNotFoundError("API index not found. Run embed_index.py first.")
+    results = []
     
-    # Set up ChromaDB client
-    client = chromadb.PersistentClient(path="api_index")
+    # Path to the JSON file containing Blender API documentation
+    api_docs_path = os.path.join(os.path.dirname(__file__), "data", "blender_api.json")
     
-    # Create embedding function using sentence-transformers
-    embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-        model_name="all-MiniLM-L6-v2"
-    )
-    
-    # Get collection
     try:
-        collection = client.get_collection(
-            name="blender_api",
-            embedding_function=embedding_function
-        )
-    except ValueError:
-        raise ValueError("Blender API collection not found. Run embed_index.py first.")
-    
-    # Query the collection
-    results = collection.query(
-        query_texts=[query],
-        n_results=n
-    )
-    
-    # Format results
-    documents = []
-    if results["documents"] and len(results["documents"][0]) > 0:
-        for i, doc in enumerate(results["documents"][0]):
-            documents.append({
-                "content": doc,
-                "url": results["metadatas"][0][i]["url"] if "url" in results["metadatas"][0][i] else "",
-                "title": results["metadatas"][0][i]["title"] if "title" in results["metadatas"][0][i] else ""
-            })
-    
-    return documents
+        # Load API documentation
+        if os.path.exists(api_docs_path):
+            with open(api_docs_path, 'r', encoding='utf-8') as f:
+                api_docs = json.load(f)
+        else:
+            # Return empty results if no documentation file exists
+            return []
+        
+        # Simple search implementation
+        query = query.lower()
+        for item in api_docs:
+            # Search in name
+            if query in item.get("name", "").lower():
+                results.append(item)
+                continue
+                
+            # Search in description
+            if query in item.get("description", "").lower():
+                results.append(item)
+                continue
+                
+            # Search in parameters
+            if any(query in str(param).lower() for param in item.get("parameters", [])):
+                results.append(item)
+                continue
+        
+        return results[:n]  # Return top n results
+        
+    except Exception as e:
+        print(f"Error searching API: {str(e)}")
+        return []
 
 if __name__ == "__main__":
     # Example usage
     query = "How to add a cube to the scene"
-    results = search_blender_api(query, n=2)
+    results = search_blender_api(query, n=5)
     
     for i, result in enumerate(results):
         print(f"Result {i+1}:")
-        print(f"Title: {result.get('title', 'No title')}")
-        print(f"URL: {result.get('url', 'No URL')}")
-        print(f"Content snippet: {result.get('content', 'No content')[:150]}...")
+        print(f"Name: {result.get('name', 'No name')}")
+        print(f"Description: {result.get('description', 'No description')}")
+        print(f"Parameters: {result.get('parameters', 'No parameters')}")
         print("-" * 80) 
