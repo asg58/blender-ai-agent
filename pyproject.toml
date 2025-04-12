@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blender-ai-agent"
+version = "0.1.0"
+description = "AI Agent for controlling Blender through natural language"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+
+[tool.pylint]
+disable = ["C0111", "C0103", "C0303", "W1203", "C0330", "C0326"]
+max-line-length = 100
+
+[tool.pytest]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100 

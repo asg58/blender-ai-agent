@@ -1,7 +1,6 @@
 import json
 import os
 import chromadb
-from sentence_transformers import SentenceTransformer
 from chromadb.utils import embedding_functions
 
 def load_api_data(file_path="blender_api_scraped.json"):

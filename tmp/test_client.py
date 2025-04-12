@@ -3,7 +3,7 @@ import asyncio
 import json
 
 # Connection details
-SERVER_URL = "ws://localhost:9877"
+SERVER_URL = "ws://localhost:9876"
 
 async def test_connection():
     print(f"Connecting to {SERVER_URL}...")

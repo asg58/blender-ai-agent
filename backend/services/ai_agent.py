@@ -3,6 +3,10 @@ import json
 import requests
 from typing import List, Dict, Any, Optional
 import sys
+import logging
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Add the parent directory to sys.path to import from knowledge_kernel
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +31,7 @@ class BlenderAIAgent:
         """
         self.ollama_api_url = ollama_api_url
         self.model = OLLAMA_MODEL  # Use configured model
+        self.history: List[Dict[str, Any]] = []  # Store conversation history
     
     def set_model(self, model_name: str):
         """Change the LLM model"""
@@ -57,6 +62,14 @@ class BlenderAIAgent:
                 knowledge_block += f"Content: {doc.get('content', 'No content')}\n\n"
         except Exception as e:
             # If API docs not available, use some basic examples
+            logger.warning(f"Failed to retrieve API documentation: {e}")
+            # Add error info to history for diagnostic purposes
+            self.history.append({
+                "type": "error",
+                "message": f"API documentation retrieval failed: {str(e)}",
+                "timestamp": "N/A"
+            })
+            
             knowledge_block = """--- Basic Blender Examples ---
 Example 1: Creating a cube
 import bpy
@@ -115,20 +128,34 @@ else:
             response.raise_for_status()
             return response.json()["message"]["content"]
         except requests.ConnectionError as e:
-            print(f"Connection error when calling Ollama API: {e}")
+            error_msg = f"Connection error when calling Ollama API: {e}"
+            print(error_msg)
+            self.history.append({"type": "error", "message": error_msg})
             return f"Connection Error: Could not connect to Ollama API. Is the service running?"
         except requests.Timeout as e:
-            print(f"Timeout error when calling Ollama API: {e}")
+            error_msg = f"Timeout error when calling Ollama API: {e}"
+            print(error_msg)
+            self.history.append({"type": "error", "message": error_msg})
             return f"Timeout Error: The request to Ollama API timed out."
         except requests.HTTPError as e:
-            print(f"HTTP error when calling Ollama API: {e}")
+            error_msg = f"HTTP error when calling Ollama API: {e}"
+            print(error_msg)
+            self.history.append({"type": "error", "message": error_msg})
             return f"HTTP Error: {e.response.status_code} - {e.response.reason}"
         except (KeyError, json.JSONDecodeError) as e:
-            print(f"Error parsing Ollama API response: {e}")
+            error_msg = f"Error parsing Ollama API response: {e}"
+            print(error_msg)
+            self.history.append({"type": "error", "message": error_msg})
             return f"Error: Received invalid response from Ollama API."
         except Exception as e:
-            print(f"Unexpected error when calling Ollama API: {e}")
+            error_msg = f"Unexpected error when calling Ollama API: {e}"
+            print(error_msg)
+            self.history.append({"type": "error", "message": error_msg})
             return f"Unexpected Error: {str(e)}"
+    
+    def get_history(self) -> List[Dict[str, Any]]:
+        """Return the conversation history"""
+        return self.history
     
     def _extract_code(self, response: str) -> str:
         """Extract code block from the response"""

@@ -1,12 +1,24 @@
+bl_info = {
+    "name": "Blender AI Agent WebSocket Server",
+    "author": "AI Agent Team",
+    "version": (1, 0),
+    "blender": (2, 80, 0),
+    "location": "View3D > Sidebar > AI Agent",
+    "description": "Start WebSocket server for AI Agent communication",
+    "warning": "",
+    "doc_url": "",
+    "category": "3D View",
+}
+
+import bpy
 import asyncio
 import json
-import bpy
 import websockets
 import inspect
-from typing import Dict, Any, List, Optional
 import os
+import threading
 import logging
-import traceback
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 # Configure logging
@@ -41,7 +53,6 @@ class WEBSOCKET_OT_start_server(bpy.types.Operator):
         def run_server():
             asyncio.run(_server_instance.start_server())
         
-        import threading
         server_thread = threading.Thread(target=run_server)
         server_thread.daemon = True
         server_thread.start()
@@ -64,11 +75,10 @@ class WEBSOCKET_OT_stop_server(bpy.types.Operator):
         
         # Stop the server in a background thread
         def stop_server():
-            asyncio.run(_server_instance.stop_server())
             global _server_instance
+            asyncio.run(_server_instance.stop_server())
             _server_instance = None
         
-        import threading
         stop_thread = threading.Thread(target=stop_server)
         stop_thread.daemon = True
         stop_thread.start()
@@ -76,19 +86,22 @@ class WEBSOCKET_OT_stop_server(bpy.types.Operator):
         self.report({'INFO'}, "WebSocket server stopped")
         return {'FINISHED'}
 
-# Function to register the server operators with Blender
-def register_websocket_server():
-    """Register the WebSocket server operators with Blender"""
-    bpy.utils.register_class(WEBSOCKET_OT_start_server)
-    bpy.utils.register_class(WEBSOCKET_OT_stop_server)
-    logger.info("Registered Blender WebSocket server operators")
-
-# Function to unregister the server operators
-def unregister_websocket_server():
-    """Unregister the WebSocket server operators from Blender"""
-    bpy.utils.unregister_class(WEBSOCKET_OT_stop_server)
-    bpy.utils.unregister_class(WEBSOCKET_OT_start_server)
-    logger.info("Unregistered Blender WebSocket server operators")
+# Panel for the UI
+class VIEW3D_PT_websocket_server(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'AI Agent'
+    bl_label = "WebSocket Server"
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        if _server_instance is None:
+            layout.operator("websocket.start_server")
+        else:
+            layout.label(text=f"Server running at:")
+            layout.label(text=f"ws://{_server_instance.host}:{_server_instance.port}")
+            layout.operator("websocket.stop_server")
 
 class BlenderWebSocketServer:
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
@@ -183,15 +196,6 @@ class BlenderWebSocketServer:
             await self.server.wait_closed()
             logger.info("WebSocket server stopped")
     
-    def get_command_history(self) -> List[Dict[str, Any]]:
-        """
-        Get the history of commands executed
-        
-        Returns:
-            List[Dict[str, Any]]: List of command history entries
-        """
-        return self.command_history
-    
     def introspect_scene(self) -> Dict[str, Any]:
         """
         Introspect the current Blender scene
@@ -282,7 +286,6 @@ class BlenderWebSocketServer:
             return {"error": f"Function not found: {function_path}"}
         except Exception as e:
             logger.error(f"Error describing function: {str(e)}")
-            logger.error(traceback.format_exc())
             return {"error": f"Function description error: {str(e)}"}
 
     def execute_code(self, code: str) -> Dict[str, Any]:
@@ -326,3 +329,37 @@ class BlenderWebSocketServer:
             }
         except Exception as e:
             return {"error": f"Execution error: {str(e)}"}
+
+# List of classes for registration
+classes = (
+    WEBSOCKET_OT_start_server,
+    WEBSOCKET_OT_stop_server,
+    VIEW3D_PT_websocket_server,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    print("Blender AI Agent WebSocket Server addon registered")
+
+def unregister():
+    # Stop the server if it's running
+    global _server_instance
+    if _server_instance is not None:
+        def stop_server():
+            global _server_instance
+            asyncio.run(_server_instance.stop_server())
+            _server_instance = None
+        
+        stop_thread = threading.Thread(target=stop_server)
+        stop_thread.daemon = True
+        stop_thread.start()
+    
+    # Unregister classes
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    print("Blender AI Agent WebSocket Server addon unregistered")
+
+# Register the addon
+if __name__ == "__main__":
+    register() 

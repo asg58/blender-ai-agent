@@ -10,7 +10,7 @@ sys.path.append(parent_dir)
 sys.path.append(blender_agent_dir)
 
 # Import the WebSocket server module
-from blender_agent.websocket_server import register_websocket_server, BlenderWebSocketServer
+from blender_agent.websocket_server import register_websocket_server
 
 # Register the WebSocket server
 register_websocket_server()

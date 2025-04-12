@@ -1,0 +1,13 @@
+fastapi>=0.100.0
+pydantic>=2.0.0
+uvicorn>=0.23.0
+websockets>=11.0.0
+python-multipart
+python-dotenv>=1.0.0
+requests
+beautifulsoup4
+numpy
+chromadb
+langchain
+sentence-transformers
+ollama>=0.1.0 

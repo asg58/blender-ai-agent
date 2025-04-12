@@ -1,0 +1,8 @@
+{
+  "include": ["backend"],
+  "reportMissingImports": false,
+  "reportUnusedImport": true,
+  "reportUnusedClass": true,
+  "reportUnusedFunction": true,
+  "reportUnusedVariable": true
+} 

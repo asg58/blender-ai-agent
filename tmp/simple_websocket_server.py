@@ -1,69 +1,21 @@
 import asyncio
-import websockets
 import json
-import subprocess
 import logging
-import sys
+import websockets
 
-# Configure logging
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("BlenderWebSocketServer")
+logger = logging.getLogger("BlenderWebSocket")
 
-# WebSocket server configuration
-HOST = "localhost"
-PORT = 9877
-
-# Blender path - we'll use subprocess to execute Blender commands
-BLENDER_PATH = r"C:\Program Files\Blender Foundation\Blender 4.0\blender.exe"
-
-# Store connected clients
-connected_clients = set()
-
-async def execute_in_blender(code):
-    """Execute Python code in Blender using the blender command line"""
-    try:
-        # Create a temporary Python script with the code
-        with open("tmp_blender_code.py", "w") as f:
-            f.write(code)
-        
-        # Run Blender with the script
-        cmd = [BLENDER_PATH, "-b", "--python", "tmp_blender_code.py"]
-        logger.info(f"Executing command: {' '.join(cmd)}")
-        
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        stdout, stderr = process.communicate()
-        
-        # Return the result
-        if process.returncode == 0:
-            return {
-                "result": {
-                    "message": "Code executed successfully",
-                    "output": stdout
-                }
-            }
-        else:
-            return {
-                "error": f"Blender execution error: {stderr}"
-            }
-    except Exception as e:
-        logger.error(f"Error executing code in Blender: {e}")
-        return {"error": str(e)}
+# Global server instance
+server = None
 
 async def handle_client(websocket, path):
-    """Handle WebSocket client connection"""
-    client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "unknown"
-    logger.info(f"New client connection from {client_ip}")
-    connected_clients.add(websocket)
+    """Handle client connections and messages"""
+    logger.info(f"Client connected: {websocket.remote_address}")
     
     try:
         async for message in websocket:
@@ -71,40 +23,75 @@ async def handle_client(websocket, path):
                 data = json.loads(message)
                 command = data.get("command")
                 params = data.get("params", {})
+                request_id = data.get("requestId")
                 
-                logger.info(f"Received command: {command} from {client_ip}")
+                logger.info(f"Received command: {command}, params: {params}")
                 
                 if command == "execute_code":
-                    code = params.get("code")
-                    logger.info(f"Executing code: {code[:100]}...")
-                    response = await execute_in_blender(code)
-                else:
-                    logger.warning(f"Unknown command: {command}")
-                    response = {"error": f"Unknown command: {command}"}
+                    code = params.get("code", "")
+                    if code:
+                        # Mock code execution (just return the code and success message)
+                        result = {"message": "Code executed successfully", "output": code}
+                        response = {
+                            "type": "code_executed",
+                            "result": result
+                        }
+                        if request_id:
+                            response["requestId"] = request_id
+                            
+                        await websocket.send(json.dumps(response))
+                    else:
+                        await websocket.send(json.dumps({
+                            "type": "error",
+                            "error": "No code provided",
+                            "requestId": request_id
+                        }))
                 
-                await websocket.send(json.dumps(response))
+                elif command == "introspect_scene":
+                    # Mock scene data
+                    scene_data = {
+                        "objects": ["Cube", "Camera", "Light"],
+                        "activeObject": "Cube",
+                        "objectCount": 3,
+                        "renderEngine": "CYCLES"
+                    }
+                    await websocket.send(json.dumps({
+                        "type": "scene_data",
+                        "result": scene_data,
+                        "requestId": request_id
+                    }))
+                    
+                else:
+                    await websocket.send(json.dumps({
+                        "type": "error",
+                        "error": f"Unknown command: {command}",
+                        "requestId": request_id
+                    }))
+                    
             except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON received from {client_ip}")
-                await websocket.send(json.dumps({"error": "Invalid JSON"}))
-            except Exception as e:
-                logger.error(f"Error handling message: {e}")
-                await websocket.send(json.dumps({"error": str(e)}))
+                logger.error(f"Invalid JSON received: {message}")
+                await websocket.send(json.dumps({"type": "error", "error": "Invalid JSON"}))
+            
     except websockets.exceptions.ConnectionClosed:
-        logger.info(f"Client {client_ip} disconnected")
-    finally:
-        connected_clients.remove(websocket)
+        logger.info(f"Client disconnected: {websocket.remote_address}")
 
-async def main():
-    logger.info(f"Starting WebSocket server on {HOST}:{PORT}")
-    async with websockets.serve(handle_client, HOST, PORT):
-        logger.info(f"WebSocket server is running at ws://{HOST}:{PORT}")
-        logger.info("Press Ctrl+C to stop the server")
-        await asyncio.Future()  # Run forever
+async def start_server(host="localhost", port=9876):
+    """Start the WebSocket server"""
+    global server
+    server = await websockets.serve(handle_client, host, port)
+    logger.info(f"WebSocket server started at ws://{host}:{port}")
+    await server.wait_closed()
+
+async def stop_server():
+    """Stop the WebSocket server"""
+    global server
+    if server:
+        server.close()
+        await server.wait_closed()
+        logger.info("WebSocket server stopped")
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(start_server())
     except KeyboardInterrupt:
-        logger.info("Server stopped by user")
-    except Exception as e:
-        logger.error(f"Server error: {e}") 
+        logger.info("Server stopped by user") 

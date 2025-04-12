@@ -1,23 +1,38 @@
 #!/bin/bash
 
-echo "🚀 Starten van Blender AI Agent stack..."
+echo "Starting Blender AI Agent..."
 
-# Start frontend (Next.js)
-echo "🟢 Start frontend..."
-cd frontend
-npm install
-npm run dev &
-cd ..
+echo "Starting backend server..."
+cd backend && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --reload &
+BACKEND_PID=$!
 
-# Start backend (FastAPI)
-echo "🟡 Start backend..."
-cd backend
-source ../venv/bin/activate 2>/dev/null || echo "⚠️  Vergeet niet je venv te activeren!"
-uvicorn main:app --reload --port 8000 &
-cd ..
+echo "Starting frontend server..."
+cd frontend && npm run dev &
+FRONTEND_PID=$!
 
-# Start Blender WebSocket Agent
-echo "🔵 Start Blender WebSocket-agent..."
-blender -b -P blender_agent/websocket_server.py &
+echo "Opening browser..."
+sleep 5
+if command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000
+elif command -v open &> /dev/null; then
+    open http://localhost:3000
+else
+    echo "Browser could not be opened automatically. Please open http://localhost:3000 manually."
+fi
 
-echo "✅ Alles draait! Frontend: http://localhost:3000 – Backend: http://localhost:8000"
+echo "Blender AI Agent started successfully!"
+echo "Please make sure Blender is running with the WebSocket add-on enabled."
+
+# Handle cleanup on exit
+function cleanup {
+    echo "Shutting down servers..."
+    kill $BACKEND_PID
+    kill $FRONTEND_PID
+    exit
+}
+
+trap cleanup INT TERM
+
+# Wait for user input
+echo "Press Ctrl+C to stop all services"
+wait

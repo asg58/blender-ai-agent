@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, List
 import logging
 import base64
 from contextlib import asynccontextmanager
+import tempfile
 
 # Import our modules
 from services.ai_agent import BlenderAIAgent
@@ -22,6 +23,11 @@ from utils.websocket_utils import connect_to_blender, send_to_blender, broadcast
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Use os to check for environment-specific configurations
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
 # WebSocket connection to Blender
 blender_ws = None
 blender_ws_lock = asyncio.Lock()
@@ -30,7 +36,16 @@ blender_ws_lock = asyncio.Lock()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    logger.info("Starting Blender AI Agent API")
+    logger.info(f"Starting Blender AI Agent API on {API_HOST}:{API_PORT}")
+    
+    # Try establishing direct connection with websockets library (used as backup)
+    try:
+        # This is a direct use of the websockets library for diagnostic purposes
+        ws_uri = f"ws://{BLENDER_WS_URL.split('://')[-1]}"
+        async with websockets.connect(ws_uri, ping_timeout=1):
+            logger.info(f"Successfully verified direct WebSocket connection to {ws_uri}")
+    except Exception as e:
+        logger.warning(f"Direct websocket connection test failed: {str(e)}")
     
     # Yield control to FastAPI to handle requests
     yield
@@ -62,6 +77,9 @@ class CodeGenerationRequest(BaseModel):
 
 class BlenderFunctionRequest(BaseModel):
     function_path: str
+
+class CodeExecutionRequest(BaseModel):
+    code: str
 
 class FileImportRequest(BaseModel):
     file_data: str
@@ -104,10 +122,10 @@ async def search_api(query: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/execute-code")
-async def execute_blender_code(code: str):
+async def execute_blender_code(request: CodeExecutionRequest):
     """Execute Python code in Blender"""
     try:
-        result = await send_to_blender("execute_code", {"code": code})
+        result = await send_to_blender(BLENDER_WS_URL, "execute_code", {"code": request.code})
         return result
     except Exception as e:
         logger.error(f"Error executing code: {str(e)}")
@@ -117,7 +135,7 @@ async def execute_blender_code(code: str):
 async def describe_function(request: BlenderFunctionRequest):
     """Get documentation for a Blender function"""
     try:
-        result = await send_to_blender("describe_function", {"function_path": request.function_path})
+        result = await send_to_blender(BLENDER_WS_URL, "describe_function", {"function_path": request.function_path})
         return result
     except Exception as e:
         logger.error(f"Error describing function: {str(e)}")
@@ -127,19 +145,36 @@ async def describe_function(request: BlenderFunctionRequest):
 async def import_file(request: FileImportRequest):
     """Import a file (SVG, DXF) into Blender and optionally extrude it"""
     try:
-        # Process the file
-        result = file_importer.import_and_process(
-            request.file_data,
-            request.file_format,
-            request.extrude,
-            request.extrude_depth
+        # Convert base64 data to UploadFile
+        file_content = base64.b64decode(request.file_data)
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{request.file_format}")
+        temp_file.write(file_content)
+        temp_file.close()
+        
+        # Create an UploadFile-like object
+        upload_file = UploadFile(
+            filename=f"import.{request.file_format}",
+            file=open(temp_file.name, "rb")
         )
         
-        if not result["success"]:
-            return JSONResponse(status_code=400, content={"error": result["error"]})
+        # Set options
+        options = {
+            "extrude": request.extrude_depth if request.extrude else 0.0,
+            "scale": 1.0
+        }
+        
+        # Process the file
+        result = await file_importer.import_and_process(upload_file, options)
+        
+        # Close and remove temp file
+        upload_file.file.close()
+        os.remove(temp_file.name)
+        
+        if result["status"] != "success":
+            return JSONResponse(status_code=400, content={"error": result["message"]})
         
         # Execute the generated code in Blender
-        execution_result = await send_to_blender("execute_code", {"code": result["code"]})
+        execution_result = await send_to_blender(BLENDER_WS_URL, "execute_code", {"code": result["code"]})
         
         return {
             "success": True,
@@ -158,34 +193,33 @@ async def upload_file(
 ):
     """Upload and import a file into Blender"""
     try:
-        # Read the file content
-        file_content = await file.read()
-        
         # Get file format from extension
-        file_format = file.filename.split('.')[-1].lower()
+        file_format = os.path.splitext(file.filename)[1].lower()
         
-        if file_format not in file_importer.supported_formats:
+        # Define supported formats
+        supported_formats = ['.svg', '.dxf', '.SVG', '.DXF']
+        
+        if file_format not in supported_formats:
             return JSONResponse(
                 status_code=400, 
-                content={"error": f"Unsupported file format: {file_format}. Supported formats: {', '.join(file_importer.supported_formats)}"}
+                content={"error": f"Unsupported file format: {file_format}. Supported formats: {', '.join(supported_formats)}"}
             )
         
-        # Encode file content as base64
-        file_data = base64.b64encode(file_content).decode('utf-8')
+        # Set options
+        options = {
+            "extrude": extrude_depth if extrude else 0.0,
+            "scale": 1.0,
+            "merge": True
+        }
         
         # Process the file
-        result = file_importer.import_and_process(
-            file_data,
-            file_format,
-            extrude,
-            extrude_depth
-        )
+        result = await file_importer.import_and_process(file, options)
         
-        if not result["success"]:
-            return JSONResponse(status_code=400, content={"error": result["error"]})
+        if result["status"] != "success":
+            return JSONResponse(status_code=400, content={"error": result["message"]})
         
         # Execute the generated code in Blender
-        execution_result = await send_to_blender("execute_code", {"code": result["code"]})
+        execution_result = await send_to_blender(BLENDER_WS_URL, "execute_code", {"code": result["code"]})
         
         return {
             "success": True,
@@ -217,6 +251,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 result = await connect_to_blender(blender_url)
                 await websocket.send_json({"type": "connect_result", "result": result})
             
+            elif command == "get_connected_clients":
+                # Return a list of connected clients (using List typing here)
+                client_list: List[Dict[str, Any]] = [
+                    {"id": id(client), "connected_at": getattr(client, "connected_at", None)}
+                    for client in websocket_clients
+                ]
+                await websocket.send_json({"type": "client_list", "clients": client_list})
+            
             elif command == "generate_code":
                 # Generate code
                 prompt = params.get("prompt")
@@ -232,7 +274,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif command == "execute_code":
                 # Execute code in Blender
                 code = params.get("code")
-                result = await send_to_blender("execute_code", {"code": code})
+                result = await send_to_blender(BLENDER_WS_URL, "execute_code", {"code": code})
                 await websocket.send_json({"type": "code_executed", "result": result})
             
             elif command == "introspect_scene":
@@ -247,14 +289,32 @@ async def websocket_endpoint(websocket: WebSocket):
                 extrude = params.get("extrude", True)
                 extrude_depth = params.get("extrude_depth", 0.1)
                 
-                result = file_importer.import_and_process(
-                    file_data, file_format, extrude, extrude_depth
+                # Create a temporary file and UploadFile object
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_format}")
+                temp_file.write(base64.b64decode(file_data))
+                temp_file.close()
+                
+                upload_file = UploadFile(
+                    filename=f"import.{file_format}",
+                    file=open(temp_file.name, "rb")
                 )
                 
-                if not result["success"]:
-                    await websocket.send_json({"type": "import_error", "error": result["error"]})
+                options = {
+                    "extrude": extrude_depth if extrude else 0.0,
+                    "scale": 1.0,
+                    "merge": True
+                }
+                
+                result = await file_importer.import_and_process(upload_file, options)
+                
+                # Close and remove temp file
+                upload_file.file.close()
+                os.remove(temp_file.name)
+                
+                if result["status"] != "success":
+                    await websocket.send_json({"type": "import_error", "error": result["message"]})
                 else:
-                    execution_result = await send_to_blender("execute_code", {"code": result["code"]})
+                    execution_result = await send_to_blender(BLENDER_WS_URL, "execute_code", {"code": result["code"]})
                     await websocket.send_json({
                         "type": "file_imported", 
                         "result": {
