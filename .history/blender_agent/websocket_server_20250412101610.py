@@ -5,12 +5,6 @@ import websockets
 import inspect
 from typing import Dict, Any, List, Optional
 import os
-import logging
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
-logger = logging.getLogger("BlenderWebSocket")
 
 # Default WebSocket configuration
 DEFAULT_WS_HOST = "localhost"
@@ -30,52 +24,11 @@ class BlenderWebSocketServer:
         self.port = port or int(os.environ.get("BLENDER_WS_PORT", DEFAULT_WS_PORT))
         self.server = None
         self.connected_clients = set()
-        logger.info(f"Initialized BlenderWebSocketServer on {self.host}:{self.port}")
 
-    async def handle_client(self, websocket):
-        """Handle WebSocket client connection"""
-        client_ip = websocket.remote_address[0] if hasattr(websocket, 'remote_address') else "unknown"
-        logger.info(f"New client connection from {client_ip}")
-        self.connected_clients.add(websocket)
-        
-        try:
-            async for message in websocket:
-                try:
-                    data = json.loads(message)
-                    command = data.get("command")
-                    params = data.get("params", {})
-                    
-                    logger.info(f"Received command: {command} from {client_ip}")
-                    
-                    if command == "introspect_scene":
-                        response = self.introspect_scene()
-                    elif command == "describe_function":
-                        function_path = params.get("function_path")
-                        response = self.describe_function(function_path)
-                    elif command == "execute_code":
-                        code = params.get("code")
-                        logger.debug(f"Executing code: {code[:100]}...")
-                        response = self.execute_code(code)
-                    else:
-                        logger.warning(f"Unknown command: {command}")
-                        response = {"error": f"Unknown command: {command}"}
-                    
-                    await websocket.send(json.dumps(response))
-                except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON received from {client_ip}")
-                    await websocket.send(json.dumps({"error": "Invalid JSON"}))
-                except Exception as e:
-                    logger.error(f"Error handling message: {str(e)}")
-                    await websocket.send(json.dumps({"error": str(e)}))
-        except websockets.exceptions.ConnectionClosed:
-            logger.info(f"Client {client_ip} disconnected")
-        finally:
-            self.connected_clients.remove(websocket)
-    
     async def start_server(self):
         """Start the WebSocket server"""
         self.server = await websockets.serve(self.handle_client, self.host, self.port)
-        logger.info(f"WebSocket server started at ws://{self.host}:{self.port}")
+        print(f"WebSocket server started at ws://{self.host}:{self.port}")
         await self.server.wait_closed()
     
     async def stop_server(self):
@@ -83,12 +36,11 @@ class BlenderWebSocketServer:
         if self.server:
             # Close all active connections
             close_tasks = []
-            logger.info(f"Closing {len(self.connected_clients)} client connections")
             for client in self.connected_clients:
                 try:
                     close_tasks.append(client.close(1001, "Server shutting down"))
                 except Exception as e:
-                    logger.error(f"Error closing client connection: {str(e)}")
+                    print(f"Error closing client connection: {str(e)}")
             
             # Wait for all connections to close
             if close_tasks:
@@ -97,7 +49,7 @@ class BlenderWebSocketServer:
             # Close the server
             self.server.close()
             await self.server.wait_closed()
-            logger.info("WebSocket server stopped")
+            print("WebSocket server stopped")
 
     def execute_code(self, code: str) -> Dict[str, Any]:
         """

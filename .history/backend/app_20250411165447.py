@@ -9,43 +9,23 @@ import websockets
 from typing import Optional, Dict, Any, List
 import logging
 import base64
-from contextlib import asynccontextmanager
 
 # Import our modules
 from services.ai_agent import BlenderAIAgent
 from services.file_importer import BlenderFileImporter
 from knowledge_kernel.search import search_blender_api
-from config import API_HOST, API_PORT, CORS_ORIGINS, BLENDER_WS_URL
-from utils.websocket_utils import connect_to_blender, send_to_blender, broadcast_to_clients
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# WebSocket connection to Blender
-blender_ws = None
-blender_ws_lock = asyncio.Lock()
-
-# Define lifespan context manager to replace on_event
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup logic
-    logger.info("Starting Blender AI Agent API")
-    
-    # Yield control to FastAPI to handle requests
-    yield
-    
-    # Shutdown logic
-    logger.info("Shutting down Blender AI Agent API")
-    # Close any remaining websocket connections, etc.
-
-# Initialize the FastAPI app with lifespan
-app = FastAPI(title="Blender AI Agent API", lifespan=lifespan)
+# Initialize the FastAPI app
+app = FastAPI(title="Blender AI Agent API")
 
 # CORS middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
@@ -54,6 +34,10 @@ app.add_middleware(
 # Initialize the AI agent and file importer
 ai_agent = BlenderAIAgent()
 file_importer = BlenderFileImporter()
+
+# WebSocket connection to Blender
+blender_ws = None
+blender_ws_lock = asyncio.Lock()
 
 # Pydantic models for API requests
 class CodeGenerationRequest(BaseModel):
@@ -71,6 +55,10 @@ class FileImportRequest(BaseModel):
 
 # Connected WebSocket clients
 websocket_clients = set()
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Blender AI Agent API")
 
 @app.get("/")
 async def root():
@@ -213,7 +201,7 @@ async def websocket_endpoint(websocket: WebSocket):
             
             if command == "connect_to_blender":
                 # Connect to Blender WebSocket
-                blender_url = params.get("url", BLENDER_WS_URL)
+                blender_url = params.get("url", "ws://localhost:9876")
                 result = await connect_to_blender(blender_url)
                 await websocket.send_json({"type": "connect_result", "result": result})
             
@@ -271,18 +259,67 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         websocket_clients.remove(websocket)
 
+async def connect_to_blender(url: str) -> Dict[str, Any]:
+    """Connect to the Blender WebSocket server"""
+    global blender_ws
+    
+    async with blender_ws_lock:
+        try:
+            # Close existing connection if any
+            if blender_ws:
+                await blender_ws.close()
+            
+            # Connect to Blender
+            blender_ws = await websockets.connect(url)
+            logger.info(f"Connected to Blender at {url}")
+            
+            return {"success": True, "message": f"Connected to Blender at {url}"}
+        except Exception as e:
+            logger.error(f"Failed to connect to Blender: {str(e)}")
+            blender_ws = None
+            return {"success": False, "error": str(e)}
+
+async def send_to_blender(command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Send a command to Blender"""
+    global blender_ws
+    
+    if not blender_ws:
+        raise HTTPException(status_code=503, detail="Not connected to Blender")
+    
+    try:
+        # Prepare message
+        message = json.dumps({"command": command, "params": params})
+        
+        # Send message
+        await blender_ws.send(message)
+        
+        # Wait for response
+        response = await blender_ws.recv()
+        return json.loads(response)
+    except websockets.exceptions.ConnectionClosed:
+        blender_ws = None
+        raise HTTPException(status_code=503, detail="Connection to Blender closed")
+    except Exception as e:
+        logger.error(f"Error sending to Blender: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 async def get_blender_scene_data() -> Optional[Dict[str, Any]]:
     """Get the current scene data from Blender"""
     try:
-        result = await send_to_blender(BLENDER_WS_URL, "introspect_scene", {})
-        return result.get("result", None)
+        response = await send_to_blender("introspect_scene", {})
+        return response.get("result")
     except Exception as e:
         logger.error(f"Error getting scene data: {str(e)}")
         return None
 
-async def broadcast_to_websocket_clients(message: Dict[str, Any]):
+async def broadcast_to_clients(message: Dict[str, Any]):
     """Broadcast a message to all connected WebSocket clients"""
-    await broadcast_to_clients(websocket_clients, message)
+    for client in websocket_clients.copy():
+        try:
+            await client.send_json(message)
+        except Exception:
+            # Client probably disconnected
+            websocket_clients.discard(client)
 
 if __name__ == "__main__":
     import uvicorn

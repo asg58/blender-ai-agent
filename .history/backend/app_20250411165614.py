@@ -9,7 +9,6 @@ import websockets
 from typing import Optional, Dict, Any, List
 import logging
 import base64
-from contextlib import asynccontextmanager
 
 # Import our modules
 from services.ai_agent import BlenderAIAgent
@@ -22,25 +21,8 @@ from utils.websocket_utils import connect_to_blender, send_to_blender, broadcast
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# WebSocket connection to Blender
-blender_ws = None
-blender_ws_lock = asyncio.Lock()
-
-# Define lifespan context manager to replace on_event
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup logic
-    logger.info("Starting Blender AI Agent API")
-    
-    # Yield control to FastAPI to handle requests
-    yield
-    
-    # Shutdown logic
-    logger.info("Shutting down Blender AI Agent API")
-    # Close any remaining websocket connections, etc.
-
-# Initialize the FastAPI app with lifespan
-app = FastAPI(title="Blender AI Agent API", lifespan=lifespan)
+# Initialize the FastAPI app
+app = FastAPI(title="Blender AI Agent API")
 
 # CORS middleware for frontend access
 app.add_middleware(
@@ -54,6 +36,10 @@ app.add_middleware(
 # Initialize the AI agent and file importer
 ai_agent = BlenderAIAgent()
 file_importer = BlenderFileImporter()
+
+# WebSocket connection to Blender
+blender_ws = None
+blender_ws_lock = asyncio.Lock()
 
 # Pydantic models for API requests
 class CodeGenerationRequest(BaseModel):
@@ -71,6 +57,10 @@ class FileImportRequest(BaseModel):
 
 # Connected WebSocket clients
 websocket_clients = set()
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting Blender AI Agent API")
 
 @app.get("/")
 async def root():

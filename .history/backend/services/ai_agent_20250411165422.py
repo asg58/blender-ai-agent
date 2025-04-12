@@ -8,17 +8,13 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     from knowledge_kernel.search import search_blender_api
-    from config import OLLAMA_API_URL, OLLAMA_MODEL
 except ImportError:
     # Create a dummy function if the module is not available
     def search_blender_api(query: str, n=3):
         return []
-    # Default config values if import fails
-    OLLAMA_API_URL = "http://localhost:11434/api/chat"
-    OLLAMA_MODEL = "mistral:latest"
 
 class BlenderAIAgent:
-    def __init__(self, ollama_api_url: str = OLLAMA_API_URL):
+    def __init__(self, ollama_api_url: str = "http://localhost:11434/api/chat"):
         """
         Initialize the Blender AI Agent
         
@@ -26,7 +22,7 @@ class BlenderAIAgent:
             ollama_api_url (str): URL for the Ollama API
         """
         self.ollama_api_url = ollama_api_url
-        self.model = OLLAMA_MODEL  # Use configured model
+        self.model = "mistral:latest"  # Default model
     
     def set_model(self, model_name: str):
         """Change the LLM model"""
