@@ -11,11 +11,7 @@ build/
 dist/
 
 # VSCode
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
+.vscode/
 
 # Node.js
 node_modules/
@@ -34,5 +30,5 @@ api_index/
 .DS_Store
 Thumbs.db
 
-# History files
+# Editor history and tmp files
 .history/
